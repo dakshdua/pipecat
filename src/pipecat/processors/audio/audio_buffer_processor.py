@@ -210,24 +210,25 @@ class AudioBufferProcessor(FrameProcessor):
     async def _process_recording(self, frame: Frame):
         """Process audio frames for recording."""
         resampled = None
+        now = time.time()
         if isinstance(frame, InputAudioRawFrame):
             # Add silence if we need to.
-            silence = self._compute_silence(self._last_user_frame_at)
+            silence = self._compute_silence(self._last_user_frame_at, now)
             self._user_audio_buffer.extend(silence)
             # Add user audio.
             resampled = await self._resample_input_audio(frame)
             self._user_audio_buffer.extend(resampled)
             # Save time of frame so we can compute silence.
-            self._last_user_frame_at = time.time()
+            self._last_user_frame_at = now
         elif self._recording and isinstance(frame, OutputAudioRawFrame):
             # Add silence if we need to.
-            silence = self._compute_silence(self._last_bot_frame_at)
+            silence = self._compute_silence(self._last_bot_frame_at, now)
             self._bot_audio_buffer.extend(silence)
             # Add bot audio.
             resampled = await self._resample_output_audio(frame)
             self._bot_audio_buffer.extend(resampled)
             # Save time of frame so we can compute silence.
-            self._last_bot_frame_at = time.time()
+            self._last_bot_frame_at = now
 
         if self._buffer_size > 0 and (
             len(self._user_audio_buffer) >= self._buffer_size
@@ -282,7 +283,6 @@ class AudioBufferProcessor(FrameProcessor):
             return
 
         self._align_track_buffers()
-        flush_time = time.time()
 
         # Call original handler with merged audio
         merged_audio = self.merge_audio_buffers()
@@ -298,9 +298,6 @@ class AudioBufferProcessor(FrameProcessor):
             self._sample_rate,
             self._num_channels,
         )
-
-        self._last_user_frame_at = flush_time
-        self._last_bot_frame_at = flush_time
 
     def _buffer_has_audio(self, buffer: bytearray) -> bool:
         """Check if a buffer contains audio data."""
@@ -354,9 +351,9 @@ class AudioBufferProcessor(FrameProcessor):
             frame.audio, frame.sample_rate, self._sample_rate
         )
 
-    def _compute_silence(self, from_time: float) -> bytes:
+    def _compute_silence(self, from_time: float, now: float) -> bytes:
         """Compute silence to insert based on time gap."""
-        quiet_time = time.time() - from_time
+        quiet_time = now - from_time
         # We should get audio frames very frequently. We introduce silence only
         # if there's a big enough gap of 1s.
         if from_time == 0 or quiet_time < 1.0:
